@@ -1,0 +1,34 @@
+# Исходные материалы и локальные доказательства
+/inbox/
+/data/
+/private/
+/answers.json
+/q5*
+/Q5*
+
+# Исходные выгрузки, если случайно скопированы в другой каталог
+01_crm_orders_export.csv
+02_bank_statement_rub.csv
+03_catalog_prices_reference.xlsx
+04_client_chats.zip
+answers_template.json
+
+# Секреты и локальная конфигурация
+.env
+.env.*
+*.pem
+*.key
+
+# Окружение и кэши
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
