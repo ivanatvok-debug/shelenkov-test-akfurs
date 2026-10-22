@@ -1,0 +1,6 @@
+# Runtime only. Tests use unittest from Python's standard library.
+openpyxl==3.1.5
+# XML entity protection for untrusted XLSX packages.
+defusedxml
+# Full JSON Schema validation, in addition to independent source invariants.
+jsonschema

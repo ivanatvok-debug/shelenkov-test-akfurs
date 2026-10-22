@@ -1,0 +1,8 @@
+{
+  "keys": [["reference"]],
+  "currencies": ["RUB"],
+  "amount_tolerance": "0",
+  "date_tolerance_days": 0,
+  "allowed_types": ["exact"],
+  "rule_order": ["exact"]
+}

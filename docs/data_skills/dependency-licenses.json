@@ -1,0 +1,47 @@
+[
+  {
+    "name": "openpyxl",
+    "version": "3.1.5",
+    "license_metadata": "MIT"
+  },
+  {
+    "name": "defusedxml",
+    "version": "0.7.1",
+    "license_metadata": "PSFL"
+  },
+  {
+    "name": "jsonschema",
+    "version": "4.26.0",
+    "license_metadata": "MIT"
+  },
+  {
+    "name": "attrs",
+    "version": "26.1.0",
+    "license_metadata": "MIT"
+  },
+  {
+    "name": "et-xmlfile",
+    "version": "2.0.0",
+    "license_metadata": "MIT"
+  },
+  {
+    "name": "jsonschema-specifications",
+    "version": "2025.9.1",
+    "license_metadata": "MIT"
+  },
+  {
+    "name": "referencing",
+    "version": "0.37.0",
+    "license_metadata": "MIT"
+  },
+  {
+    "name": "rpds-py",
+    "version": "2026.9.1",
+    "license_metadata": "MIT"
+  },
+  {
+    "name": "typing-extensions",
+    "version": "4.16.0",
+    "license_metadata": "PSF-2.0"
+  }
+]

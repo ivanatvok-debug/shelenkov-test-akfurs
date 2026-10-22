@@ -1,0 +1,9 @@
+{
+  "required": ["id", "amount", "date", "currency"],
+  "unique": ["id"],
+  "types": {"id": "identifier", "amount": "money", "date": "date", "currency": "string"},
+  "allowed_values": {"currency": ["RUB"]},
+  "date_formats": ["%Y-%m-%d"],
+  "money_format": {"decimal_separator": ".", "thousands_separator": null},
+  "join_keys": []
+}

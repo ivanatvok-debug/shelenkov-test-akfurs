@@ -1,0 +1,266 @@
+{
+  "goal": "AKFURS-B-01",
+  "date": "2026-10-23",
+  "base_commit": "fca6b27fe6482790da97e74bf9961dee7e8aa500",
+  "files": [
+    {
+      "path": ".agents/skills/akfurs-data-quality/SKILL.md",
+      "change": "created",
+      "sha256": "b17e9eae81be51ccf69bebad95efcc348da82367b2db4cc3ae0baedbffd036ea",
+      "bytes": 3340
+    },
+    {
+      "path": ".agents/skills/akfurs-data-quality/references/contract.json",
+      "change": "created",
+      "sha256": "3ec7aea33a4755f71a0c58ac34c4e93361a14a4ceedfe10be20fbf9bb768bda1",
+      "bytes": 334
+    },
+    {
+      "path": ".agents/skills/akfurs-reconciliation/SKILL.md",
+      "change": "created",
+      "sha256": "440f2d2b6eb6aae8b0e1ab83799a58af7868fb8274e60338ee8a3dee998a5f81",
+      "bytes": 4235
+    },
+    {
+      "path": ".agents/skills/akfurs-reconciliation/references/rules.json",
+      "change": "created",
+      "sha256": "243aaf12aa73e588ba31460a41652332a3d968418ee600796f35a854da41ea7d",
+      "bytes": 167
+    },
+    {
+      "path": ".agents/skills/akfurs-validation/SKILL.md",
+      "change": "created",
+      "sha256": "eace15b9d345bbbc344221f7a9933ca4f38bd89a53fe29125da8fad48a7cf89c",
+      "bytes": 2801
+    },
+    {
+      "path": ".agents/skills/akfurs-validation/references/checks.md",
+      "change": "created",
+      "sha256": "ce54d72cb51eead42fb6949d3cf1f8719b808b4b7f1c9957723f350038f27668",
+      "bytes": 2171
+    },
+    {
+      "path": ".agents/skills/akfurs-xlsx/SKILL.md",
+      "change": "created",
+      "sha256": "02cc42dd704b04850aa2322d40f38f7c8e0874152f120474432dc1ecab8feda9",
+      "bytes": 3372
+    },
+    {
+      "path": ".agents/skills/akfurs-xlsx/references/HERMES_MIT.txt",
+      "change": "created",
+      "sha256": "8aa3c7717d57a68490c31eef4b57b6887e892f0566ff866078ebd76113d357e2",
+      "bytes": 1070
+    },
+    {
+      "path": ".agents/skills/akfurs-xlsx/references/safety.md",
+      "change": "created",
+      "sha256": "d42a6cbf3ac3c449505806775b241b5be5400945813f702ed580e776029828c3",
+      "bytes": 1940
+    },
+    {
+      "path": "AGENTS.md",
+      "change": "modified",
+      "sha256": "ed92b1187419ad71566bd8c389cb60d8043fe8510426e4eb75575720307146b2",
+      "bytes": 5340
+    },
+    {
+      "path": "README.md",
+      "change": "modified",
+      "sha256": "d09a511c1a66ac1b8b39b5a9f70b3cc76fb5471e4ce782036d8f8261549c74c6",
+      "bytes": 5145
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "change": "modified",
+      "sha256": "d5c05f4368f44c9f03847d58466c7885fe9cd4ac26687340aa1098c0ac76c7a5",
+      "bytes": 6255
+    },
+    {
+      "path": "docs/data_skills/FILES.json",
+      "change": "created",
+      "sha256": null,
+      "bytes": null
+    },
+    {
+      "path": "docs/data_skills/HANDOFF.md",
+      "change": "created",
+      "sha256": "07f3ce331bac8a0e297e2e93bf462de9fceef44f66c4582595a9d934ec3384fd",
+      "bytes": 22797
+    },
+    {
+      "path": "docs/data_skills/PLAN.md",
+      "change": "created",
+      "sha256": "3ab8f45c46d0583d2d297599a4a78d04c2d173c03ddbf4187e5cd183a1028c74",
+      "bytes": 12229
+    },
+    {
+      "path": "docs/data_skills/PREFLIGHT.md",
+      "change": "created",
+      "sha256": "d8b518acd3161e1c8a3e311ab47a4f4bf6acffa8ca92c539e6bcbbd511d9c38c",
+      "bytes": 3457
+    },
+    {
+      "path": "docs/data_skills/SOURCE_MANIFEST.md",
+      "change": "created",
+      "sha256": "6c82cd2b1b5da77005c0c92430345939531d7cbb431d94f0b037e4de853e8990",
+      "bytes": 8798
+    },
+    {
+      "path": "docs/data_skills/USAGE.md",
+      "change": "created",
+      "sha256": "ad766126d05c1d95986eb33453d3c87806957a089a51681ddb2026f234fe996d",
+      "bytes": 16496
+    },
+    {
+      "path": "docs/data_skills/dependencies.json",
+      "change": "created",
+      "sha256": "695bc7ce1c1428f1a221c2dd080690a42c33b4fbb865c2d6fc7d944139bf356d",
+      "bytes": 432
+    },
+    {
+      "path": "docs/data_skills/dependency-licenses.json",
+      "change": "created",
+      "sha256": "bb6378fd1bbb6307a401dda758eaca093628bbc33557a1f1062e12e95109186a",
+      "bytes": 832
+    },
+    {
+      "path": "docs/data_skills/licenses/HERMES_MIT.txt",
+      "change": "created",
+      "sha256": "8aa3c7717d57a68490c31eef4b57b6887e892f0566ff866078ebd76113d357e2",
+      "bytes": 1070
+    },
+    {
+      "path": "docs/data_skills/licenses/HERMES_ROOT_MIT.txt",
+      "change": "created",
+      "sha256": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6",
+      "bytes": 1070
+    },
+    {
+      "path": "docs/data_skills/source-manifest.json",
+      "change": "created",
+      "sha256": "fc3c92c5f2a3b5faffee8d5939c719ecf03e1a79af839b685db247a14fe91b3c",
+      "bytes": 4491
+    },
+    {
+      "path": "docs/review.md",
+      "change": "modified",
+      "sha256": "9ae7fcac28591349a59425a2adb70604e08cd8d7ee0213d8d704c71b5f4a6578",
+      "bytes": 20164
+    },
+    {
+      "path": "tests/AGENTS.md",
+      "change": "modified",
+      "sha256": "20c1e8e6be0fce2f2b9b9a1bfe08cdbc4267eb85c6e47e20b2dc5fcac9b2d74c",
+      "bytes": 3768
+    },
+    {
+      "path": "tests/data_skills/test_accounting_properties.py",
+      "change": "created",
+      "sha256": "2994c4ab93fe4f3a9c9eed02bb22a8666375a2c5eefc803d659fad3132014fc0",
+      "bytes": 2552
+    },
+    {
+      "path": "tests/data_skills/test_cli.py",
+      "change": "created",
+      "sha256": "2e3d60247e0023a08039b9af572a08722d8c0a44252cef281c2386b00be2aca9",
+      "bytes": 5245
+    },
+    {
+      "path": "tests/data_skills/test_quality.py",
+      "change": "created",
+      "sha256": "671fc05851f37e10c7dfb6e2737a091c437ae52519c09a417ef883f1a49e599f",
+      "bytes": 8781
+    },
+    {
+      "path": "tests/data_skills/test_reconciliation.py",
+      "change": "created",
+      "sha256": "712659b65dd4e8152616416a18e6c80f95ed885829227b2ec4abffa8c3d1bf65",
+      "bytes": 11145
+    },
+    {
+      "path": "tests/data_skills/test_validation.py",
+      "change": "created",
+      "sha256": "9a99baf3cd9b4ec0a6a8a0a98131edd8e86253b32f277a370fda294dab5eb96a",
+      "bytes": 8842
+    },
+    {
+      "path": "tests/data_skills/test_xlsx.py",
+      "change": "created",
+      "sha256": "07c424bf21160ed1f5d3f19fc6526ac60c7fb68943000b5a467454afb0b3b9fc",
+      "bytes": 7782
+    },
+    {
+      "path": "tools/data_processing/__init__.py",
+      "change": "created",
+      "sha256": "84578fd3558c7cc035c49fd0355b6aabca7a6f45f8a4624b9b369d949daf0dad",
+      "bytes": 80
+    },
+    {
+      "path": "tools/data_processing/__main__.py",
+      "change": "created",
+      "sha256": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d",
+      "bytes": 48
+    },
+    {
+      "path": "tools/data_processing/cli.py",
+      "change": "created",
+      "sha256": "a8e104e1884a3eb763108a9ace2d55a6e9bbc7d067a99dbaaf9427e485cbcf7e",
+      "bytes": 5680
+    },
+    {
+      "path": "tools/data_processing/quality.py",
+      "change": "created",
+      "sha256": "0d58fcc7c61517075517fd15b600fe135defa04cf5e1c68878f8fdd264b331e8",
+      "bytes": 13344
+    },
+    {
+      "path": "tools/data_processing/reconciliation.py",
+      "change": "created",
+      "sha256": "8038fbdcc7309e0142f13c26f85388169d25e6a88c46632d36d59aa00dabdeeb",
+      "bytes": 16283
+    },
+    {
+      "path": "tools/data_processing/reconciliation.schema.json",
+      "change": "created",
+      "sha256": "077cc5e0ee5ae07f74cc7483647ee60ee4f6aeca1b031392e23b59a469492afa",
+      "bytes": 3403
+    },
+    {
+      "path": "tools/data_processing/requirements.in",
+      "change": "created",
+      "sha256": "d9dbbe125d868753f5ab6930c9fb0743c42dfe1bf6bd23fa1b7a2522fb29bdc6",
+      "bytes": 235
+    },
+    {
+      "path": "tools/data_processing/requirements.lock",
+      "change": "created",
+      "sha256": "c8846cd6b679c80ce9f66651b4df595c41ba99e24b61cf6a59b2e3ef794f52f1",
+      "bytes": 13096
+    },
+    {
+      "path": "tools/data_processing/safe_output.py",
+      "change": "created",
+      "sha256": "173aeb2739f8018b9f8f620dc54e12b3ce42936c07b76915d410fe8ea41637b3",
+      "bytes": 1017
+    },
+    {
+      "path": "tools/data_processing/tabular.py",
+      "change": "created",
+      "sha256": "92090b6fd6d0e8a2221dce2005caf43119e64e85fc2ad0e48431ca5f5550bb47",
+      "bytes": 2773
+    },
+    {
+      "path": "tools/data_processing/validation.py",
+      "change": "created",
+      "sha256": "d0d2428d0635e454dd5b265be1b2e59e1ac32268553476a33d37d3ab965bce0d",
+      "bytes": 21844
+    },
+    {
+      "path": "tools/data_processing/xlsx.py",
+      "change": "created",
+      "sha256": "63ef10fe8c28d6ee8c54783b99c75c7821435a3610fc0405333fc1b1b91de7ae",
+      "bytes": 12430
+    }
+  ],
+  "self_hash_policy": "FILES.json lists itself without a circular hash; generated caches/env/private evidence are separately inventoried"
+}

@@ -1,6 +1,6 @@
 # Проверки
 
-Область: будущие тесты CLI. Тестовых модулей и выполненных расчётных проверок сейчас нет. Правила примеров — в [fixtures/synthetic/AGENTS.md](fixtures/synthetic/AGENTS.md).
+Область: будущие предметные тесты CLI Q1–Q4. Таких расчётных проверок сейчас нет. Отдельные синтетические проверки инфраструктуры находятся в `data_skills/` и запускаются `.venv/bin/python -m unittest discover -s tests/data_skills -v`; они не подтверждают решение задания. Правила предметных примеров — в [fixtures/synthetic/AGENTS.md](fixtures/synthetic/AGENTS.md).
 
 ## Обязательные случаи
 

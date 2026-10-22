@@ -1,0 +1,117 @@
+{
+  "verification_date": "2026-10-23",
+  "sources": [
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "LICENSE",
+      "sha256": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6",
+      "bytes": 1070
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/LICENSE",
+      "sha256": "8aa3c7717d57a68490c31eef4b57b6887e892f0566ff866078ebd76113d357e2",
+      "bytes": 1070
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/SKILL.md",
+      "sha256": "b302d7ac997843a757ab3c11513ea012889ebdae32f842edb44faa9a4485f19b",
+      "bytes": 9655
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/references/restructuring.md",
+      "sha256": "cef18a6ce1835c0c95c447db57491ec9b84a75d6137e0002499eb626abc77626",
+      "bytes": 3688
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/scripts/csv_to_xlsx.py",
+      "sha256": "4fb97f8e656d50c02d3c890c53b7864d5066a282b2568e552e168bd297c27c91",
+      "bytes": 3430
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/scripts/xlsx_create.py",
+      "sha256": "f6be8af8dfe1ad70c3456cf3063276e74d9453b7f1d2b65e08b0dad5bfeed417",
+      "bytes": 9842
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/scripts/xlsx_edit.py",
+      "sha256": "f689b1c3ae284656a95b149cef95c0599b2774cb639c0103926bf25fa4c4a9cc",
+      "bytes": 10812
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/scripts/xlsx_read.py",
+      "sha256": "5ab31b1b417efea11a8af7b15c6aa5f26d6d966effefaa19af604c1fa0ca0916",
+      "bytes": 5790
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/scripts/xlsx_recalc.py",
+      "sha256": "33b4143ce9dcf73e7f98c2a62030c6449fe7263d87254f916050d552b32bd496",
+      "bytes": 4170
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/scripts/xlsx_restructure.py",
+      "sha256": "c8b01fdc706c1e0815549f7b28199602c8988df01aa9f5cd848115333875f8ae",
+      "bytes": 13723
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/scripts/xlsx_to_csv.py",
+      "sha256": "a141b37a01bad031970177fc48aa501524067cd882b58c9a4cf4e543e52fc896",
+      "bytes": 2351
+    },
+    {
+      "repo": "NousResearch/hermes-agent",
+      "commit": "6e8adc7a4621399936f764fae9d01d1169489b23",
+      "path": "skills/productivity/xlsx/tests/test_xlsx_skill.py",
+      "sha256": "ee8d662af6a2bec9387a3be12749a61a1bbd6f0a84ee3632e992bb611597d1f4",
+      "bytes": 21986
+    },
+    {
+      "repo": "anthropics/skills",
+      "commit": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "path": "skills/xlsx/SKILL.md",
+      "sha256": "6712b39718fe815054abca9c3ee72f989613e6f771c8a5c58f30a65a6c905622",
+      "bytes": 8598
+    },
+    {
+      "repo": "anthropics/skills",
+      "commit": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "path": "skills/xlsx/LICENSE.txt",
+      "sha256": "79f6d8f5b427252fa3b1c11ecdbdb6bf610b944f7530b4de78f770f38741cfaa",
+      "bytes": 1467
+    },
+    {
+      "repo": "openai/plugins",
+      "commit": "0722921d5542fc593105c27bd52630babd8b8c2a",
+      "path": "plugins/data-analytics/skills/analyze-data-quality/SKILL.md",
+      "sha256": "9a3c994f87da0c7a8c5ce37bbf08a59fc6f5b4f368475d3d7438f622b753d5f0",
+      "bytes": 10699
+    },
+    {
+      "repo": "openai/plugins",
+      "commit": "0722921d5542fc593105c27bd52630babd8b8c2a",
+      "path": "plugins/data-analytics/skills/validate-data/SKILL.md",
+      "sha256": "7aa5c77b22b9e5bf1b054e4ab6320a12dfd5342aa6cb18f8e497b46c713be20e",
+      "bytes": 14022
+    }
+  ]
+}

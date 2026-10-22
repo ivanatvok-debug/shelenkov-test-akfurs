@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Project-local reconciliation protocol v1.0, not employer answers",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "results", "exceptions", "unresolved_transactions", "summary"],
+  "properties": {
+    "version": {"const": "1.0"},
+    "results": {"type": "array", "items": {"$ref": "#/$defs/result"}},
+    "exceptions": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "source_index", "record_id", "reason"],
+      "properties": {
+        "source": {"enum": ["orders", "transactions"]},
+        "source_index": {"type": "integer", "minimum": 0},
+        "record_id": {}, "reason": {"type": "string", "minLength": 1}
+      }
+    }},
+    "unresolved_transactions": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_index", "record_id", "reason", "remaining_amount", "raw", "normalized"],
+      "properties": {
+        "source_index": {"type": "integer", "minimum": 0},
+        "record_id": {}, "reason": {"type": "string", "minLength": 1},
+        "remaining_amount": {"anyOf": [{"$ref": "#/$defs/money"}, {"type": "null"}]},
+        "raw": {"type": "object"},
+        "normalized": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    }},
+    "summary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["orders", "transactions", "by_status", "matched_totals"],
+      "properties": {
+        "orders": {"type": "integer", "minimum": 0},
+        "transactions": {"type": "integer", "minimum": 0},
+        "by_status": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "matched_totals": {"type": "object", "additionalProperties": {"$ref": "#/$defs/money"}}
+      }
+    }
+  },
+  "$defs": {
+    "money": {"type": "string", "pattern": "^[+-]?[0-9]+(?:\\.[0-9]+)?$"},
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_index", "order_id", "status", "rule", "links", "candidates", "transaction_source_indices", "raw", "normalized", "reasons", "uncertainty"],
+      "properties": {
+        "source_index": {"type": "integer", "minimum": 0},
+        "order_id": {},
+        "status": {"enum": ["MATCHED", "UNMATCHED", "AMBIGUOUS", "CONFLICT", "REVIEW_REQUIRED"]},
+        "rule": {"type": ["string", "null"]},
+        "links": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["transaction_id", "amount"],
+          "properties": {"transaction_id": {"type": "string", "minLength": 1}, "amount": {"$ref": "#/$defs/money"}}
+        }},
+        "candidates": {"type": "array", "items": {}},
+        "transaction_source_indices": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 0}},
+        "raw": {"type": "object", "required": ["order", "transactions"], "additionalProperties": false,
+          "properties": {"order": {"type": "object"}, "transactions": {"type": "array", "items": {"type": "object"}}}},
+        "normalized": {"type": "object", "additionalProperties": {"type": "string"}},
+        "reasons": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "uncertainty": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
