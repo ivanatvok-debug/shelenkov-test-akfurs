@@ -28,15 +28,13 @@ import zipfile
 
 from jsonschema import Draft202012Validator, ValidationError
 
+from .q4_adapters import AdapterError as ChatError, build_command, check_event_log, decode
 
-VERSION = 'q4-v1'
+
+VERSION = 'q4-v2'
 RESOURCES = Path(__file__).resolve().parent / 'q4_resources'
 MANAGER_EVENTS = {'manager_price', 'manager_invitation', 'payment_terms',
                   'negated_invitation', 'quoted_invitation', 'hypothetical_invitation'}
-
-
-class ChatError(ValueError):
-    pass
 
 
 def digest(data):
@@ -49,6 +47,7 @@ def dump(path, value):
 
 def versions():
     return {'chats.py': digest(Path(__file__).read_bytes()),
+            'q4_adapters.py': digest(Path(__file__).with_name('q4_adapters.py').read_bytes()),
             **{name: digest((RESOURCES / name).read_bytes())
                for name in ['prompt.txt', 'response.schema.json', 'POLICY.md']}}
 
@@ -70,7 +69,7 @@ def parse_chat(raw):
             if previous is not None and stamp < previous:
                 raise ChatError('TIMESTAMP_REGRESSION')
             previous = stamp
-            messages.append({'position': len(messages) + 1, 'role': match[2], 'text': match[3],
+            messages.append({'message_id': f'{header[1]}:{len(messages) + 1}', 'position': len(messages) + 1, 'role': match[2], 'text': match[3],
                              'timestamp': stamp.isoformat(), 'source_line': number})
         if not messages:
             raise ChatError('EMPTY_CHAT')
@@ -132,39 +131,6 @@ def evaluate(chat, response):
             'chat_id': chat['chat_id'], 'violation': violation, 'events': events,
             'absence': response['absence'], 'semantic_status': 'COMPLETE',
             'semantic_review_status': 'NOT_CHECKED'}
-
-
-def check_event_log(stdout):
-    """No tool execution is allowed, including in otherwise successful turns."""
-    records = []
-    for line in stdout.splitlines():
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise ChatError('INVALID_EVENT_LOG') from error
-        if not isinstance(record, dict):
-            raise ChatError('INVALID_EVENT_LOG')
-        if not isinstance(record.get('type'), str):
-            raise ChatError('INVALID_EVENT_LOG_TYPE')
-        if record['type'].startswith('item.'):
-            item = record.get('item', {})
-            if not isinstance(item, dict):
-                raise ChatError('INVALID_EVENT_LOG_ITEM')
-            if item.get('type') not in ['agent_message', 'reasoning']:
-                raise ChatError('UNEXPECTED_TOOL_OR_ITEM:' + str(item.get('type')))
-        if record['type'] in ['error', 'turn.failed']:
-            raise ChatError('RUNTIME_EVENT_ERROR')
-        if record['type'] not in ['thread.started', 'turn.started', 'turn.completed',
-                                  'item.started', 'item.updated', 'item.completed']:
-            raise ChatError('UNEXPECTED_EVENT:' + record['type'])
-        records.append(record)
-    if not records:
-        raise ChatError('EMPTY_EVENT_LOG')
-    if not any(record['type'] == 'turn.completed' for record in records):
-        raise ChatError('NO_COMPLETED_TURN')
-    return records
 
 
 def reserve_call(ledger, output, raw_sha, max_calls, live):
@@ -235,8 +201,8 @@ def add_usage(total, usage, location='usage'):
     total.update(combined)
 
 
-def run_chat(source, output, timeout=120, command=None, live=True, model='gpt-6.1-sol',
-             reasoning='high', ledger=None, max_calls=1):
+def run_chat(source, output, timeout=120, command=None, live=True, model=None,
+             reasoning='high', ledger=None, max_calls=1, provider='codex', deadline=None):
     """Analyze one full fresh TXT; command/live=False supports local fault tests.
 
     Evidence must be a new directory. An explicit ledger may be shared by all
@@ -259,7 +225,10 @@ def run_chat(source, output, timeout=120, command=None, live=True, model='gpt-6.
     phase = time.monotonic()
     try:
         validate_mode(command, live)
-        envelope['backend'] = 'codex_exec' if live else 'local_fault_fixture'
+        envelope['backend'] = provider + '_cli' if live else 'local_fault_fixture'
+        envelope['provider'] = provider
+        model = model or ('gpt-6.1-sol' if provider == 'codex' else None)
+        envelope['requested_model'] = model
         if Path(envelope['ledger_path']) == source:
             raise ChatError('LEDGER_IS_SOURCE')
         raw = source.read_bytes()
@@ -271,20 +240,24 @@ def run_chat(source, output, timeout=120, command=None, live=True, model='gpt-6.
         request = ((RESOURCES / 'prompt.txt').read_text(encoding='utf-8')
                    + '\nPOLICY\n' + (RESOURCES / 'POLICY.md').read_text(encoding='utf-8')
                    + '\nINPUT_DATA\n'
-                   + json.dumps({'raw_utf8': raw.decode('utf-8-sig'), 'chat': chat}, ensure_ascii=False))
+                   + json.dumps({'chat': chat, 'job': {'job_id': chat['chat_id'] + ':' + digest(raw),
+                     'chat_id': chat['chat_id'], 'input_hash': digest(raw),
+                     'prompt_version': versions()['prompt.txt'],
+                     'schema_version': versions()['response.schema.json'], 'timeout': timeout}}, ensure_ascii=False))
         (output / 'request.txt').write_text(request, encoding='utf-8')
         envelope['request_sha256'] = digest(request.encode())
         timing['parse_load_seconds'] = time.monotonic() - phase
         response_path = output / 'response.json'
         with tempfile.TemporaryDirectory(prefix='akfurs-q4-') as workdir:
             envelope['model_cwd'] = workdir
-            cmd = list(command if command is not None else ['codex']) + [
-                'exec', '--ignore-user-config', '--ephemeral', '--skip-git-repo-check',
-                '--sandbox', 'read-only', '--cd', workdir, '--model', model,
-                '-c', 'model_reasoning_effort=' + json.dumps(reasoning),
-                '--output-schema', str(RESOURCES / 'response.schema.json'),
-                '--output-last-message', str(response_path), '--json', '-']
-            envelope.update(argv=cmd, timeout_seconds=timeout)
+            cmd = build_command(provider, workdir, response_path, RESOURCES / 'response.schema.json',
+                                model, reasoning, command=command)
+            if deadline is not None:
+                remaining = deadline - time.time() - 1
+                if remaining <= 0:
+                    raise ChatError('GOAL_DEADLINE')
+                timeout = min(timeout, remaining)
+            envelope.update(argv=cmd, timeout_seconds=timeout, deadline_epoch=deadline)
             envelope['invocation'] = reserve_call(envelope['ledger_path'], output,
                                                   envelope['raw_sha256'], max_calls, live)
             phase = time.monotonic()
@@ -305,15 +278,18 @@ def run_chat(source, output, timeout=120, command=None, live=True, model='gpt-6.
             (output / 'stderr.log').write_text(stderr, encoding='utf-8')
             envelope['exit'] = process.returncode
             if timed_out:
+                envelope['adapter'] = {'status': 'transient_error', 'normalized_error': 'TIMEOUT',
+                                       'provider': provider, 'attempt_count': 1, 'internal_attempt_count': None}
                 raise ChatError('TIMEOUT')
-            if process.returncode != 0:
-                raise ChatError('RUNTIME_EXIT:' + str(process.returncode))
-            if not response_path.is_file():
-                raise ChatError('MISSING_FRESH_RESPONSE')
             phase = time.monotonic()
             try:
-                records = check_event_log(stdout)
-                envelope.update(event_log_checked=True, unexpected_tools=False)
+                response_raw = response_path.read_bytes() if response_path.is_file() else None
+                decoded = decode(provider, stdout, response_raw, process.returncode)
+                records = decoded.pop('records')
+                response = decoded.pop('result')
+                decoded['elapsed'] = timing['subprocess_ai_seconds']
+                envelope['adapter'] = decoded
+                envelope.update(event_log_checked=decoded['status'] == 'ok')
                 for record in records:
                     for source_key, destination in [('model', 'observed_model'),
                                                     ('reasoning_effort', 'observed_reasoning'),
@@ -327,17 +303,22 @@ def run_chat(source, output, timeout=120, command=None, live=True, model='gpt-6.
                             envelope.update(usage_status='HOLD', usage_error=str(error))
                             raise
                         envelope['usage_status'] = 'OBSERVED'
-                response_raw = response_path.read_bytes()
+                if decoded['status'] != 'ok':
+                    raise ChatError(decoded['normalized_error'])
+                envelope['unexpected_tools'] = False
+                if decoded['model'] is not None:
+                    envelope['observed_model'] = decoded['model']
+                if response_raw is None:
+                    response_raw = json.dumps(response, ensure_ascii=False).encode('utf-8')
+                    response_path.write_bytes(response_raw)
                 envelope['response_sha256'] = digest(response_raw)
-                try:
-                    response = json.loads(response_raw)
-                except (ValueError, UnicodeError) as error:
-                    raise ChatError('INVALID_RESPONSE_JSON') from error
                 result = evaluate(chat, response)
             finally:
                 timing['local_validation_seconds'] = time.monotonic() - phase
     except (ChatError, OSError, ValueError, zipfile.BadZipFile) as error:
         result.update(status='HOLD', violation=None, failure=str(error), semantic_status='NOT_COMPUTED')
+        if envelope.get('adapter', {}).get('status') == 'ok':
+            envelope['adapter'].update(status='invalid', normalized_error=str(error))
     if not timing['parse_load_seconds']:
         timing['parse_load_seconds'] = time.monotonic() - phase
     timing['end_to_end_seconds'] = time.monotonic() - started
@@ -417,7 +398,7 @@ def inventory_zip(source, output):
 
 
 def run_zip(source, output, timeout=120, command=None, live=True, model='gpt-6.1-sol',
-            reasoning='high', ledger=None, max_calls=None, workers=1):
+            reasoning='high', ledger=None, max_calls=None, workers=1, provider='codex', deadline=None):
     """Bounded fresh-chat jobs; one coordinator owns aggregation and fail/drain.
 
     The default retains serial dispatch. A fatal outcome stops refill, while all
@@ -573,12 +554,15 @@ def run_zip(source, output, timeout=120, command=None, live=True, model='gpt-6.1
             while pending or (next_chat < len(chats) and not envelope['stopped_early']):
                 while (not envelope['stopped_early'] and next_chat < len(chats)
                        and len(pending) < workers):
+                    if deadline is not None and time.time() >= deadline - 1:
+                        stop('GOAL_DEADLINE', 'budget')
+                        break
                     entry = chats[next_chat]
                     chat_output = output / 'chats' / f'{entry["entry"]:06d}-{entry["chat_id"]}'
                     try:
                         future = executor.submit(
                             run_chat, entry['input_path'], chat_output, timeout=timeout,
-                            command=command, live=live, model=model, reasoning=reasoning,
+                            command=command, live=live, model=model, reasoning=reasoning, provider=provider, deadline=deadline,
                             ledger=envelope['ledger_path'], max_calls=envelope['counts']['max_calls'])
                     except Exception as error:
                         stop('JOB_SUBMISSION_ERROR:' + type(error).__name__)
@@ -635,7 +619,8 @@ def main(argv=None):
     parser.add_argument('source', type=Path, help='original ZIP, read without modification')
     parser.add_argument('--evidence', type=Path, required=True, help='new private output directory')
     parser.add_argument('--timeout', type=float, default=120)
-    parser.add_argument('--model', default='gpt-6.1-sol')
+    parser.add_argument('--provider', choices=['codex', 'claude'], default='codex')
+    parser.add_argument('--model', help='Codex defaults to gpt-6.1-sol; explicit model required for Claude')
     parser.add_argument('--reasoning', default='high')
     parser.add_argument('--ledger', type=Path, help='optional shared per-goal call journal')
     parser.add_argument('--max-calls', type=int, help='total ledger cap; default: ZIP chat count')
@@ -645,7 +630,7 @@ def main(argv=None):
     try:
         result = run_zip(args.source, args.evidence, timeout=args.timeout, model=args.model,
                          reasoning=args.reasoning, ledger=args.ledger, max_calls=args.max_calls,
-                         workers=args.workers)
+                         workers=args.workers, provider=args.provider)
     except OSError as error:
         print(json.dumps({'status': 'HOLD', 'failure': type(error).__name__}), file=sys.stderr)
         return 2

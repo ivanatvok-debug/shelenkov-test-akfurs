@@ -217,6 +217,59 @@ class ChatsTests(unittest.TestCase):
                 self.assertIsNone(result['violation'])
                 self.assertIn(expected, result['failure'])
 
+    def test_recovered_reconnect_allows_complete_checked_result(self):
+        logs = [{'type': 'error', 'message': 'Reconnecting... 2/5 (request timed out)'},
+                {'type': 'turn.completed', 'usage': {'input_tokens': 1}}]
+        result = q.run_chat(self.source(), self.base / 'recovered', live=False,
+                            command=self.fake(log=logs))
+        self.assertEqual(result['status'], 'PASS')
+        run = json.loads((self.base / 'recovered' / 'RUN.json').read_text())
+        self.assertEqual(run['adapter']['recovered_error_events'], 1)
+        self.assertIsNone(run['adapter']['internal_attempt_count'])
+
+    def test_recovered_waiting_for_network_is_not_a_terminal_error(self):
+        logs = [{'type': 'thread.started'}, {'type': 'turn.started'},
+                {'type': 'error', 'message': 'Reconnecting... waiting for network (Connection failed: error sending request)'},
+                {'type': 'turn.completed', 'usage': {'input_tokens': 1}}]
+        result = q.run_chat(self.source(), self.base / 'network-wait-recovered', live=False,
+                            command=self.fake(log=logs))
+        self.assertEqual(result['status'], 'PASS')
+        run = json.loads((self.base / 'network-wait-recovered/RUN.json').read_text())
+        self.assertEqual(run['adapter']['recovered_error_events'], 1)
+        self.assertIsNone(run['adapter']['internal_attempt_count'])
+
+    def test_protocol_failure_keeps_observed_completed_turn_usage(self):
+        logs = [{'type': 'error', 'message': 'Unknown terminal failure'},
+                {'type': 'turn.completed', 'usage': {'input_tokens': 7, 'output_tokens': 2}}]
+        output = self.base / 'failed-with-known-usage'
+        result = q.run_chat(self.source(), output, live=False, command=self.fake(log=logs))
+        self.assertEqual(result['status'], 'HOLD')
+        run = json.loads((output / 'RUN.json').read_text())
+        self.assertEqual(run['usage'], {'input_tokens': 7, 'output_tokens': 2})
+        self.assertEqual(run['usage_status'], 'OBSERVED')
+
+    def test_terminal_or_unknown_error_never_uses_valid_saved_json(self):
+        for index, logs in enumerate([
+            [{'type': 'error', 'message': 'Authentication failed'}, {'type': 'turn.completed'}],
+            [{'type': 'turn.failed'}, {'type': 'turn.completed'}],
+            [{'type': 'turn.completed'}, {'type': 'error', 'message': 'Reconnecting... 2/5 (request timed out)'}]
+        ]):
+            result = q.run_chat(self.source(), self.base / f'terminal-{index}', live=False,
+                                command=self.fake(log=logs))
+            self.assertEqual(result['status'], 'HOLD')
+            self.assertIsNone(result['violation'])
+
+    def test_request_preserves_each_message_once_with_stable_ids(self):
+        source = self.source(raw_chat('Уникальная вымышленная реплика.'))
+        output = self.base / 'single-representation'
+        result = q.run_chat(source, output, live=False, command=self.fake())
+        self.assertEqual(result['status'], 'PASS')
+        request = (output / 'request.txt').read_text()
+        self.assertEqual(request.count('Уникальная вымышленная реплика.'), 1)
+        data = json.loads(request.split('\nINPUT_DATA\n', 1)[1])
+        self.assertEqual(data['chat']['messages'][0]['message_id'], 'SYNTHETIC:1')
+        self.assertEqual(data['job']['input_hash'], hashlib.sha256(source.read_bytes()).hexdigest())
+
     def test_unknown_top_level_runtime_event_is_not_silent_tool_success(self):
         result = q.run_chat(self.source(), self.base / 'unknown-event', live=False,
                             command=self.fake(log=[{'type': 'tool.called', 'name': 'shell'},
@@ -575,6 +628,15 @@ class ChatsTests(unittest.TestCase):
         self.assertEqual(run['counts']['successful_chats'], 2)
         self.assertFalse(run['stopped_early'])
         self.assertFalse((output / 'Q4_RESULT.json').exists())
+
+    def test_expired_goal_deadline_never_submits_or_reserves_a_call(self):
+        source = self.archive([('one.txt', raw_chat())])
+        output = self.base / 'expired'
+        result = q.run_zip(source, output, command=self.fake(), live=False, deadline=1)
+        self.assertEqual(result['status'], 'HOLD')
+        run = json.loads((output / 'RUN.json').read_text())
+        self.assertEqual(run['jobs']['submitted'], 0)
+        self.assertFalse((output / 'MODEL_CALLS.jsonl').exists())
 
     def test_invalid_workers_never_submit_and_cli_rejects_out_of_range(self):
         source = self.archive([('one.txt', raw_chat())])

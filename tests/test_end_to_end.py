@@ -224,6 +224,28 @@ for record in [dict(type='thread.started'),dict(type='turn.started'),dict(type='
         self.assertEqual(answer['q4_chats_meeting_before_price'], ['SYNTH-A'])
         self.assertEqual(answer['q2b_unidentified_payments_sum_rub'], Decimal('9007199254740993.01'))
         self.assertIn(str(self.data), answer['run_command'])
+        self.assertTrue(answer['run_command'].startswith('python solve.py '))
+        self.assertNotIn(str(ROOT / 'solve.py'), answer['run_command'])
+
+    def test_invalid_budgets_and_input_ledger_fail_before_creating_evidence(self):
+        bad = [{'q4_budget_seconds': v} for v in [-1, 0, float('nan'), float('inf'), True]]
+        bad += [{'max_calls': v} for v in [0, -1, True, 1.5]]
+        bad += [{'ledger': self.data / NAMES[0]}]
+        for index, kwargs in enumerate(bad):
+            evidence = self.base / f'bad-budget-{index}'
+            with self.subTest(kwargs=kwargs), patch.object(solver, 'run_zip',
+                    side_effect=AssertionError('Q4 must not be reached')), self.assertRaises(ValueError):
+                solver.calculate_all(self.data, evidence, run_command='python solve.py synthetic', **kwargs)
+            self.assertFalse(evidence.exists())
+
+    def test_preflight_stderr_explains_reason_without_fictitious_evidence(self):
+        result = subprocess.run([sys.executable, str(ROOT / 'solve.py'), str(self.base / 'absent')],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, '')
+        diagnostic = json.loads(result.stderr)
+        self.assertEqual(diagnostic['reason'], 'MISSING_INPUT_DIRECTORY')
+        self.assertIsNone(diagnostic['evidence'])
 
     def test_actual_cli_missing_input_empty_stdout(self):
         result = subprocess.run([sys.executable, str(ROOT / 'solve.py'), str(self.base / 'absent')],
