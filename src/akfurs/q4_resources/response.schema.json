@@ -1,0 +1,104 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "semantic_status": {
+      "type": "string",
+      "enum": [
+        "COMPLETE",
+        "UNCERTAIN",
+        "FAILED"
+      ]
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "Менеджер",
+              "Клиент"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "manager_price",
+              "manager_invitation",
+              "client_amount",
+              "payment_terms",
+              "negated_invitation",
+              "quoted_invitation",
+              "hypothetical_invitation",
+              "ambiguous_amount"
+            ]
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1
+          },
+          "basis": {
+            "type": "string",
+            "minLength": 1
+          },
+          "qualification": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "role",
+          "type",
+          "quote",
+          "basis",
+          "qualification"
+        ]
+      }
+    },
+    "absence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "price": {
+          "type": "string",
+          "enum": [
+            "PRESENT",
+            "ABSENT",
+            "UNKNOWN"
+          ]
+        },
+        "invitation": {
+          "type": "string",
+          "enum": [
+            "PRESENT",
+            "ABSENT",
+            "UNKNOWN"
+          ]
+        }
+      },
+      "required": [
+        "price",
+        "invitation"
+      ]
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "semantic_status",
+    "events",
+    "absence",
+    "uncertainties"
+  ]
+}
