@@ -2,6 +2,8 @@
 
 Область: предметные тесты CLI Q1–Q4. `test_crm.py` проверяет частный Q1 через CLI на придуманных CSV; запуск — `.venv/bin/python -m unittest discover -s tests -p test_crm.py -v`. `test_bank.py` проверяет Q2 через API и CLI; запуск — `.venv/bin/python -m unittest discover -s tests -p test_bank.py -v`. Отдельные синтетические проверки инфраструктуры находятся в `data_skills/` и запускаются `.venv/bin/python -m unittest discover -s tests/data_skills -v`; они не подтверждают решение задания. Правила предметных примеров — в [fixtures/synthetic/AGENTS.md](fixtures/synthetic/AGENTS.md).
 
+`test_pricing.py` проверяет Q3 через API и CLI на вымышленных CSV/XLSX, включая скрытую историю: `.venv/bin/python -m unittest discover -s tests -p test_pricing.py -v`. Изменение только Q3 не требует выдавать прежние Q1/Q2-проверки за новые; при изменении общего читателя/нормализации проверяются затронутые зависимости.
+
 ## Обязательные случаи
 
 | Область | Что проверить |
