@@ -176,3 +176,66 @@ git diff --cached --name-only
 Локальный скрипт проверяет состав, хеши, ссылки, десять ключей и отсутствие программных заглушек; вызывает `git check-ignore --no-index -z --stdin` и `git diff --no-index --check -- /dev/null <путь>` для каждого нового файла. Семь групп автоматических проверок выполнены успешно; сверка смысловых правил — отдельная самопроверка. Скрипт, исходный список хешей и отчёт хранятся во временном `/tmp/`, не являются тестами решения и не входят в комплект репозитория. Решения R0–R3 остаются `NOT_CHECKED`.
 
 Для дальнейшей проверки записывать дату, область, среду, точную команду, результат и число проверок, длительность при запуске, найденный дефект и влияние, решение и следующий разрешённый шаг. Исправления реальных ошибок AI отмечать без выдуманной истории.
+
+## G00-F1 — исправление и AKFURS-G00-COMMIT, 2026-10-23
+
+Область: один дефект независимого validation gate AKFURS-B-01 до R0.
+Исходная версия — main, `63d763d5363168caa32ff1fa46fc2a7aa28260e6`.
+Исторические FAIL/HOLD выше и исходный G00-отчёт сохранены.
+
+Причина G00-F1: валидатор проверял выбранные links и приоритет правила, но не
+полный первый исходный кластер транзакций. Удаление части consuming links могло
+превратить неоднозначность в неподтверждённый MATCHED с полной готовностью.
+До исправления сохранённый синтетический forged дал PASS/PASS/true и CLI exit 0.
+
+Исправление в tools/data_processing/validation.py независимо восстанавливает
+полный первый кластер с соблюдением rule_order и порядка keys, включая связанные
+invalid sources; проверяет полноту candidate trace и consuming links и допустимость
+множественности. Для group используются все явные allocations заказа; allocations
+другого заказа не уменьшают исходный exact/composite кластер. Matcher не импортирован
+и не изменён. Business rules, JSON protocol/schema, архитектура и зависимости сохранены.
+
+Постоянные регрессии в tests/data_skills/test_validation.py: 8 новых методов;
+все 12 прежних method bodies сохранены. RED: 20 methods, 5 assertion failures,
+0 errors/skips. GREEN: validation 20/20; reconciliation 20/20; полный suite
+84/84, failures/errors/skips 0/0/0. Старые reviewer methods — 13/13,
+G00 controls — 26/26; оба прежних проявления G00-F1 стали PASS.
+Forged после патча: FAIL/FAIL/false, CLI exit 2. Честный AMBIGUOUS сохраняется
+с integrity PASS, data_ready=false и CLI exit 3. Exact/composite/partial/group/refund
+положительные сценарии не регрессировали в проверенном synthetic scope.
+
+Отдельное независимое AI-review исправленной версии: PASS, новых findings 0.
+Reviewer gpt-6.1-sol/xhigh не участвовал в реализации gpt-6.1-sol/high;
+42 собственных manual probes (29 negatives, 13 positives) прошли. Отдельно
+проверен runtime с запрещённым импортом matcher; повторены 84/13/26 проверок.
+Evidence хранится вне Git: private/preflight/G00-FIX-VALIDATION-20261023T061155Z-g00f1/
+(AUTHOR_REPORT.md, RED/GREEN/FULL_TEST.log, PATCH.diff, PINNED_PATCH.json,
+independent_review/REVIEW.md и FINDINGS.json). Это AI-review, не human acceptance.
+
+Проверенные SHA-256:
+
+- validation.py: `429daf92cdb7e1f5734d3e0a3c43c91f8b14520ad29623ae9c7936dcb976e9c8`;
+- test_validation.py: `3474139a5e8894c3db011a201ef5685c23cf9bcadc95fb4976ad47f4e3db461f`.
+
+Иван разрешил один локальный commit при повторном API/CLI и полном suite,
+проверке exact allowlist/staging и отсутствии чувствительных данных.
+Разрешённый состав: validation.py, test_validation.py, этот журнал и FILES.json.
+В FILES.json обновляются только SHA-256/bytes двух функциональных файлов;
+остальные записи и исторические metadata сохраняются по границам поручения.
+Commit message: `fix(validation): reject incomplete source payment clusters`.
+
+Техническое закрытие G00-F1 ограничено synthetic canonical protocol. Допущение:
+контракт совместимости задают действующие явные rules, новых бизнес-трактовок нет.
+Реальные inbox/data, Q1–Q5 и закрытый эталон не проверялись; сеть, установка,
+секреты, push и GitHub actions не разрешены. Приёмка всего AKFURS-B-01 владельцем,
+этапа 0 и переход к этапу 1 этим локальным commit не подтверждаются.
+
+Повторный контроль AKFURS-G00-COMMIT выполнен текущей сессией gpt-6.1-sol/high:
+точные hashes и PATCH.diff совпали с независимым review, findings=[].
+Сохранённый forged через API со штатной schema вернул FAIL/FAIL/false,
+через `.venv/bin/python -m tools.data_processing validate` — те же статусы и exit 2;
+честный AMBIGUOUS через API — PASS/PASS/false. С теми же исходными synthetic
+orders/transactions/rules получены ошибки identity и permission, schema PASS.
+`PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest discover -s tests/data_skills -v`:
+84 tests, OK, failures/errors/skips 0/0/0, runner 1.888 s, wall 2.054 s;
+Linux/CPython 3.12.3, существующая .venv, без установки зависимостей.

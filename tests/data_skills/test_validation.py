@@ -27,7 +27,149 @@ def schema():
     return json.loads((Path(__file__).resolve().parents[2] / "tools/data_processing/reconciliation.schema.json").read_text())
 
 
+def cluster_specimen():
+    """Manual source cluster: O2's allocation does not remove T2 from O1."""
+    result, orders, transactions, options = specimen()
+    orders.append({**orders[0], "id": "O2", "amount": "0.20", "reference": "other"})
+    transactions.append({**transactions[0], "id": "T2", "amount": "0.20"})
+    options["allowed_types"].append("group")
+    options["allocations"] = [{"order_id": "O2", "transaction_id": "T2", "amount": "0.20"}]
+    second = copy.deepcopy(result["results"][0])
+    second.update(source_index=1, order_id="O2", rule="group:explicit",
+                  links=[{"transaction_id": "T2", "amount": "0.20"}], candidates=["T2"],
+                  transaction_source_indices=[1], raw={"order": orders[1], "transactions": [transactions[1]]})
+    second["normalized"].update(order_amount="0.20", payment_total="0.20")
+    result["results"].append(second)
+    first = result["results"][0]
+    first.update(status="AMBIGUOUS", links=[], candidates=["T1", "T2"],
+                 transaction_source_indices=[0, 1], reasons=["MULTIPLE_TRANSACTIONS"],
+                 uncertainty="MULTIPLE_TRANSACTIONS")
+    first["raw"]["transactions"] = copy.deepcopy(transactions)
+    first["normalized"]["payment_total"] = "0"
+    result["unresolved_transactions"] = [{"source_index": 0, "record_id": "T1",
+        "reason": "UNALLOCATED_AMOUNT", "remaining_amount": "0.30", "raw": copy.deepcopy(transactions[0]),
+        "normalized": {"amount": "0.30", "currency": "RUB", "date": "2026-01-10"}}]
+    result["summary"] = {"orders": 2, "transactions": 2,
+                         "by_status": {"AMBIGUOUS": 1, "MATCHED": 1}, "matched_totals": {"RUB": "0.20"}}
+    return result, orders, transactions, options
+
+
 class ValidationTests(unittest.TestCase):
+    def test_multiple_source_payments_remain_ambiguous_without_partial(self):
+        report = validate_result(*cluster_specimen(), schema=schema())
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["integrity_status"], "PASS")
+        self.assertFalse(report["data_ready"])
+
+    def test_forged_match_cannot_select_subset_of_full_or_trimmed_cluster(self):
+        for trim in (False, True):
+            with self.subTest(trim=trim):
+                result, orders, transactions, options = cluster_specimen()
+                row = result["results"][0]
+                row.update(status="MATCHED", links=[{"transaction_id": "T1", "amount": "0.30"}],
+                           reasons=["CONFIRMED_IDENTITY_AMOUNT_CURRENCY_DATE"], uncertainty=None)
+                row["normalized"]["payment_total"] = "0.30"
+                if trim:
+                    row.update(candidates=["T1"], transaction_source_indices=[0])
+                    row["raw"]["transactions"] = [copy.deepcopy(transactions[0])]
+                result["unresolved_transactions"] = []
+                result["summary"].update(by_status={"MATCHED": 2}, matched_totals={"RUB": "0.50"})
+                report = validate_result(result, orders, transactions, options, schema=schema())
+                self.assertEqual(report["integrity_status"], "FAIL")
+                self.assertEqual(report["status"], "FAIL")
+                self.assertFalse(report["data_ready"])
+
+    def test_full_group_allocation_authorizes_the_same_source_cluster(self):
+        from tools.data_processing.reconciliation import reconcile
+        _, orders, transactions, options = cluster_specimen()
+        options["allocations"].insert(0, {"order_id": "O1", "transaction_id": "T1", "amount": "0.30"})
+        result = reconcile(orders, transactions, options)
+        self.assertEqual([row["rule"] for row in result["results"]], ["group:explicit"] * 2)
+        report = validate_result(result, orders, transactions, options, schema=schema())
+        self.assertEqual(report["status"], "PASS")
+        self.assertTrue(report["data_ready"])
+
+    def test_partial_links_must_cover_the_full_cluster(self):
+        from tools.data_processing.reconciliation import reconcile
+        _, orders, transactions, options = specimen()
+        transactions.append({**transactions[0], "id": "T2", "amount": "0.20"})
+        options["allowed_types"].append("partial")
+        # A self-consistent forged MATCHED hides T2 in unresolved, with either trace.
+        for trim in (False, True):
+            with self.subTest(trim=trim):
+                result, _, _, _ = specimen()
+                result["summary"]["transactions"] = 2
+                result["unresolved_transactions"] = [{"source_index": 1, "record_id": "T2",
+                    "reason": "UNALLOCATED_AMOUNT", "remaining_amount": "0.20", "raw": copy.deepcopy(transactions[1]),
+                    "normalized": {"amount": "0.20", "currency": "RUB", "date": "2026-01-10"}}]
+                if not trim:
+                    result["results"][0].update(candidates=["T1", "T2"], transaction_source_indices=[0, 1])
+                    result["results"][0]["raw"]["transactions"] = copy.deepcopy(transactions)
+                self.assertEqual(validate_result(result, orders, transactions, options, schema=schema())["integrity_status"], "FAIL")
+        for amount, status in (("0.50", "MATCHED"), ("0.60", "REVIEW_REQUIRED")):
+            with self.subTest(amount=amount):
+                orders[0]["amount"] = amount
+                result = reconcile(orders, transactions, options)
+                self.assertEqual(result["results"][0]["status"], status)
+                report = validate_result(result, orders, transactions, options, schema=schema())
+                self.assertEqual(report["status"], "PASS")
+                self.assertEqual(report["data_ready"], status == "MATCHED")
+
+    def test_group_links_must_include_every_allocation_for_order(self):
+        result, orders, transactions, options = specimen()
+        transactions.append({**transactions[0], "id": "T2", "amount": "0.20"})
+        options["allowed_types"].append("group")
+        options["allocations"] = [{"order_id": "O1", "transaction_id": tx["id"], "amount": tx["amount"]}
+                                  for tx in transactions]
+        result["results"][0]["rule"] = "group:explicit"
+        result["results"][0].update(candidates=["T1", "T2"], transaction_source_indices=[0, 1])
+        result["results"][0]["raw"]["transactions"] = copy.deepcopy(transactions)
+        result["summary"]["transactions"] = 2
+        result["unresolved_transactions"] = [{"source_index": 1, "record_id": "T2", "reason": "UNALLOCATED_AMOUNT",
+            "remaining_amount": "0.20", "raw": copy.deepcopy(transactions[1]),
+            "normalized": {"amount": "0.20", "currency": "RUB", "date": "2026-01-10"}}]
+        self.assertEqual(validate_result(result, orders, transactions, options, schema=schema())["integrity_status"], "FAIL")
+
+    def test_single_exact_composite_and_signed_full_clusters_remain_valid(self):
+        from tools.data_processing.reconciliation import reconcile
+        for kind in ("exact", "composite", "refund", "signed_partial"):
+            with self.subTest(kind=kind):
+                _, orders, transactions, options = specimen()
+                if kind == "composite":
+                    options.update(keys=[["reference", "currency"]], allowed_types=["composite"], rule_order=["composite"])
+                elif kind == "refund":
+                    orders[0]["amount"] = transactions[0]["amount"] = "-0.30"
+                    options["allowed_types"].append("refund")
+                elif kind == "signed_partial":
+                    orders[0]["amount"] = "0.20"
+                    transactions.append({**transactions[0], "id": "T2", "amount": "-0.10"})
+                    options["allowed_types"].extend(["partial", "refund"])
+                report = validate_result(reconcile(orders, transactions, options), orders, transactions, options, schema=schema())
+                self.assertEqual(report["status"], "PASS")
+                self.assertTrue(report["data_ready"])
+
+    def test_related_invalid_source_cannot_support_consuming_links(self):
+        for source in ("orders", "transactions"):
+            with self.subTest(source=source):
+                result, orders, transactions, options = specimen()
+                records = orders if source == "orders" else transactions
+                records.append({**records[0], "id": "bad", "amount": "bad"})
+                report = validate_result(result, orders, transactions, options, schema=schema())
+                self.assertEqual(report["status"], "FAIL")
+                self.assertTrue(any(e["check"] == "identity" for e in report["errors"]))
+
+    def test_confirmed_match_cannot_bypass_key_order(self):
+        from tools.data_processing.reconciliation import reconcile
+        _, orders, transactions, options = cluster_specimen()
+        options.pop("allocations")
+        options["keys"].append(["id"])
+        orders[0]["alternate"] = transactions[0]["alternate"] = "unique"
+        options["keys"][1] = ["alternate"]
+        forged = reconcile(orders, transactions, {**options, "keys": list(reversed(options["keys"]))})
+        report = validate_result(forged, orders, transactions, options, schema=schema())
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any(e["check"] == "priority" for e in report["errors"]))
+
     def test_confirmed_match_cannot_bypass_rule_priority(self):
         from tools.data_processing.reconciliation import reconcile
         _, orders, transactions, options = specimen()

@@ -25,8 +25,8 @@ def _identity(raw, fields):
     return tuple(raw[f] for f in fields)
 
 
-def _first_rule(raw, transactions, valid_transaction_indices, rules):
-    """Check search precedence from source identities, without running matcher."""
+def _first_cluster(raw, transactions, valid_transaction_indices, rules):
+    """Recover the complete first source cluster, without running matcher."""
     def normalized(value):
         return " ".join(unicodedata.normalize("NFKC", value).casefold().split()) if isinstance(value, str) else ""
 
@@ -36,17 +36,22 @@ def _first_rule(raw, transactions, valid_transaction_indices, rules):
                 if (len(fields) == 1) != (kind == "exact"):
                     continue
                 key = _identity(raw, fields)
-                if key is not None and any(_identity(source, fields) == key for source in transactions):
-                    return kind + ":" + ",".join(fields)
+                if key is not None:
+                    found = [i for i, source in enumerate(transactions) if _identity(source, fields) == key]
+                    if found:
+                        return kind + ":" + ",".join(fields), found
         else:
             value = normalized(raw.get(rules["candidate_field"]))
             if value:
+                found = []
                 for index in valid_transaction_indices:
                     other = normalized(transactions[index].get(rules["candidate_field"]))
                     if other and (value == other if kind == "normalized" else
                                   SequenceMatcher(None, value, other, autojunk=False).ratio() >= float(rules["fuzzy_threshold"])):
-                        return kind + ":" + rules["candidate_field"]
-    return None
+                        found.append(index)
+                if found:
+                    return kind + ":" + rules["candidate_field"], found
+    return None, []
 
 
 def _source_values(records, currencies):
@@ -244,6 +249,15 @@ def validate_result(result, orders: list[dict], transactions: list[dict], rules:
             error("conclusion", tag + ": unresolved status cannot consume transactions")
         if status == "MATCHED" and not links:
             error("conclusion", tag + ": confirmed match has no source payment")
+        allocated = [ti for owner, ti in explicit if owner == oi]
+        expected_rule, cluster = (("group:explicit", allocated) if allocated else
+                                  _first_cluster(orders[oi], transactions, tv, rules))
+        rule = row.get("rule")
+        base_rule = rule[len("partial:"):] if isinstance(rule, str) and rule.startswith("partial:") else rule
+        if base_rule != expected_rule:
+            error("priority", tag + ": selected rule bypasses the first source cluster or explicit allocation")
+        if candidates != cluster:
+            error("source_trace", tag + ": candidate trace does not cover the complete first source cluster")
         row_payments, seen = [], set()
         for link in links:
             try:
@@ -268,15 +282,14 @@ def validate_result(result, orders: list[dict], transactions: list[dict], rules:
                 error("links", tag + ": invalid or unknown payment/amount")
         if not row_payments:
             continue
-        rule = row.get("rule")
+        if seen != set(cluster):
+            error("identity", tag + ": consuming links do not cover the complete authorized source cluster")
         if rule == "group:explicit":
             if "group" not in allowed or any(explicit.get((oi, ti)) != value for ti, value in row_payments):
                 error("identity", tag + ": group assignment is not explicitly authorized")
         else:
             if isinstance(rule, str) and rule.startswith("partial:"):
                 rule = rule[len("partial:"):]
-            if _first_rule(orders[oi], transactions, tv, rules) != rule:
-                error("priority", tag + ": selected rule bypasses an earlier source cluster")
             kind, separator, key_text = rule.partition(":") if isinstance(rule, str) else ("", "", "")
             fields = key_text.split(",")
             key = _identity(orders[oi], fields)
@@ -292,7 +305,7 @@ def validate_result(result, orders: list[dict], transactions: list[dict], rules:
             for ti, value in row_payments:
                 if value != tv[ti][1]:
                     error("amount", tag + ": implicit partial transaction allocation")
-            if len(row_payments) > 1 and "partial" not in allowed:
+            if len(cluster) > 1 and "partial" not in allowed:
                 error("permission", tag + ": partial aggregation not permitted")
         total = sum((value for _, value in row_payments), Fraction(0))
         try:
