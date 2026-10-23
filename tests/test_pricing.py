@@ -297,7 +297,7 @@ class PricingTests(unittest.TestCase):
         paths = self.inputs()
         original = [hashlib.sha256(p.read_bytes()).hexdigest() for p in paths]
         evidence = self.directory / 'fresh-evidence'
-        command = [str(ROOT / '.venv/bin/python'), '-m', 'akfurs.pricing', *map(str, paths), '--evidence', str(evidence)]
+        command = [sys.executable, '-m', 'akfurs.pricing', *map(str, paths), '--evidence', str(evidence)]
         env = {**os.environ, 'PYTHONPATH': str(ROOT / 'src'), 'PYTHONDONTWRITEBYTECODE': '1'}
         process = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
         self.assertEqual(process.returncode, 0, process.stderr)

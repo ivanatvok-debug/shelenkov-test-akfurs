@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AK Furs answers Q1-Q4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "q1_unique_orders", "q1_unique_order_lines", "q2a_paid_orders_without_payment",
+    "q2b_unidentified_payments_count", "q2b_unidentified_payments_sum_rub",
+    "q3_price_violation_lines_total", "q3_price_violation_lines_by_manager",
+    "q4_chats_meeting_before_price", "run_command", "notes"
+  ],
+  "properties": {
+    "q1_unique_orders": {"type": "integer", "minimum": 0},
+    "q1_unique_order_lines": {"type": "integer", "minimum": 0},
+    "q2a_paid_orders_without_payment": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "q2b_unidentified_payments_count": {"type": "integer", "minimum": 0},
+    "q2b_unidentified_payments_sum_rub": {"type": "number", "minimum": 0},
+    "q3_price_violation_lines_total": {"type": "integer", "minimum": 0},
+    "q3_price_violation_lines_by_manager": {
+      "type": "object", "propertyNames": {"minLength": 1},
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "q4_chats_meeting_before_price": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"}
+    },
+    "run_command": {"type": "string", "minLength": 1},
+    "notes": {"type": "string", "minLength": 1}
+  }
+}

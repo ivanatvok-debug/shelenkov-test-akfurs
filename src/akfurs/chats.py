@@ -7,6 +7,7 @@ Local structural PASS does not establish independent semantic review or R2.
 
 import argparse
 from collections import Counter
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -416,23 +417,141 @@ def inventory_zip(source, output):
 
 
 def run_zip(source, output, timeout=120, command=None, live=True, model='gpt-6.1-sol',
-            reasoning='high', ledger=None, max_calls=None):
-    """Sequential full-corpus baseline. A single failure withholds Q4_RESULT."""
+            reasoning='high', ledger=None, max_calls=None, workers=1):
+    """Bounded fresh-chat jobs; one coordinator owns aggregation and fail/drain.
+
+    The default retains serial dispatch. A fatal outcome stops refill, while all
+    submitted jobs are reconciled before evidence is written. Semantic HOLDs
+    remain independent and never produce a successful partial Q4_RESULT.
+    """
     source, output = Path(source).resolve(), Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
     started = time.monotonic()
     envelope = {'adapter_version': VERSION, 'utc_start': datetime.now(timezone.utc).isoformat(),
                 'source_path': str(source), 'versions': versions(), 'requested_model': model,
                 'requested_reasoning': reasoning, 'semantic_review_status': 'NOT_CHECKED',
-                'counts': {'subprocess_calls': 0, 'retries': 0, 'failed_chats': 0,
+                'counts': {'subprocess_calls': 0, 'observed_subprocess_calls': 0,
+                           'unknown_subprocess_jobs': 0, 'retries': 0, 'failed_chats': 0,
                            'successful_chats': 0, 'not_checked_chats': 0}, 'stopped_early': False,
+                'workers': {'requested': workers, 'observed_max_inflight': 0},
+                'jobs': {'submitted': 0, 'completed': 0, 'not_started': 0},
                 'usage': {}, 'usage_status': 'NOT_CHECKED', 'calls': []}
     result = {'status': 'HOLD', 'scope': 'full Q4 local computation', 'semantic_review_status': 'NOT_CHECKED'}
     registry = {'status': 'HOLD', 'entries': [], 'diagnostics': []}
     timing = dict(parse_load_seconds=0.0, subprocess_ai_seconds=0.0, local_validation_seconds=0.0,
                   summed_chat_seconds=0.0)
     phase = time.monotonic()
+    semantic_failures = ('SEMANTIC_UNCERTAINTY', 'INVALID_SCHEMA:', 'INVALID_POSITION',
+                         'ROLE_MISMATCH', 'MISSING_OR_AMBIGUOUS_QUOTE', 'DUPLICATE_EVENT',
+                         'ABSENCE_EVENT_CONTRADICTION', 'OVERLAPPING_DECISION_QUOTES')
+    positives = []
+
+    def stop(failure, kind='runtime'):
+        if not envelope['stopped_early']:
+            envelope.update(stopped_early=True, stop_reason=failure, stop_kind=kind)
+
+    def reconcile(future, entry):
+        """Account every outcome, including exceptions without observable RUN."""
+        chat_output = Path(entry['analysis_path'])
+        failure = None
+        run = {}
+        try:
+            chat_result = future.result()
+            if not isinstance(chat_result, dict):
+                raise ChatError('INVALID_JOB_RESULT')
+        except Exception as error:
+            failure = 'UNEXPECTED_JOB_ERROR:' + type(error).__name__
+            chat_result = {'status': 'HOLD', 'failure': failure}
+        try:
+            run = json.loads((chat_output / 'RUN.json').read_text(encoding='utf-8'))
+            if not isinstance(run, dict):
+                raise ChatError('INVALID_JOB_RUN')
+        except Exception as error:
+            run = {}
+            failure = failure or 'JOB_EVIDENCE_ERROR:' + type(error).__name__
+        count = run.get('subprocess_calls')
+        if type(count) is int and count >= 0:
+            envelope['counts']['observed_subprocess_calls'] += count
+        else:
+            envelope['counts']['unknown_subprocess_jobs'] += 1
+            failure = failure or 'UNOBSERVED_SUBPROCESS_COUNT'
+        envelope['counts']['subprocess_calls'] = (
+            None if envelope['counts']['unknown_subprocess_jobs']
+            else envelope['counts']['observed_subprocess_calls'])
+        try:
+            if run.get('chat_id') != entry['chat_id']:
+                raise ChatError('JOB_CHAT_ID_MISMATCH')
+            if run.get('raw_sha256') != entry['raw_sha256']:
+                raise ChatError('JOB_RAW_SHA256_MISMATCH')
+            stored_result = json.loads((chat_output / 'RESULT.json').read_text(encoding='utf-8'))
+            if run.get('result') != chat_result or stored_result != chat_result:
+                raise ChatError('JOB_RESULT_MISMATCH')
+            if chat_result.get('status') not in ['PASS', 'HOLD']:
+                raise ChatError('INVALID_JOB_STATUS')
+            if chat_result['status'] == 'PASS' and (
+                    chat_result.get('chat_id') != entry['chat_id']
+                    or type(chat_result.get('violation')) is not bool):
+                raise ChatError('JOB_RESULT_ID_OR_VIOLATION_MISMATCH')
+            if chat_result['status'] == 'HOLD' and not isinstance(chat_result.get('failure'), str):
+                raise ChatError('INVALID_JOB_FAILURE')
+            chat_timing = run['timing']
+            for name in ['parse_load_seconds', 'subprocess_ai_seconds',
+                         'local_validation_seconds', 'end_to_end_seconds']:
+                value = chat_timing[name]
+                if (isinstance(value, bool) or not isinstance(value, (int, float))
+                        or not math.isfinite(value) or value < 0):
+                    raise ChatError('INVALID_JOB_TIMING')
+            for name in ['parse_load_seconds', 'subprocess_ai_seconds', 'local_validation_seconds']:
+                timing[name] += chat_timing[name]
+            timing['summed_chat_seconds'] += chat_timing['end_to_end_seconds']
+        except Exception as error:
+            failure = failure or ('JOB_EVIDENCE_ERROR:' + str(error))
+        try:
+            if run.get('usage_status') == 'HOLD':
+                raise ChatError(run.get('usage_error', 'INVALID_USAGE:JOB_HOLD'))
+            if run.get('usage_status') not in ['OBSERVED', 'NOT_CHECKED']:
+                raise ChatError('INVALID_USAGE:UNOBSERVED_JOB_USAGE')
+            add_usage(envelope['usage'], run['usage'])
+            if run['usage_status'] == 'OBSERVED' and envelope['usage_status'] != 'HOLD':
+                envelope['usage_status'] = 'OBSERVED'
+        except Exception as error:
+            usage_failure = ('INVALID_USAGE:COUNTER_SUM_OVERFLOW'
+                             if isinstance(error, OverflowError) else str(error))
+            envelope.update(usage_status='HOLD')
+            envelope.setdefault('usage_error', usage_failure)
+            failure = failure or usage_failure
+            stop(usage_failure, 'usage')
+        if failure:
+            chat_result = {'status': 'HOLD', 'failure': failure}
+            stop(failure)
+        entry['analysis_status'] = chat_result['status']
+        entry.pop('analysis_reason', None)
+        if chat_result['status'] == 'HOLD':
+            entry['analysis_failure'] = chat_result['failure']
+            envelope['counts']['failed_chats'] += 1
+            if not chat_result['failure'].startswith(semantic_failures):
+                stop(chat_result['failure'])
+        else:
+            envelope['counts']['successful_chats'] += 1
+            if chat_result['violation']:
+                positives.append(entry['chat_id'])
+        envelope['counts']['not_checked_chats'] -= 1
+        envelope['jobs']['completed'] += 1
+        call = {'entry': entry['entry'], 'chat_id': entry['chat_id'],
+                'expected_chat_id': entry['chat_id'], 'expected_raw_sha256': entry['raw_sha256'],
+                'run_path': str(chat_output), 'result_path': str(chat_output / 'RESULT.json'),
+                'status': chat_result['status'], 'timing': run.get('timing'),
+                'usage': run.get('usage'), 'requested_model': model,
+                'requested_reasoning': reasoning,
+                **{key: run.get(key, 'NOT_CHECKED') for key in
+                   ['observed_model', 'observed_reasoning', 'observed_snapshot']}}
+        if chat_result['status'] == 'HOLD':
+            call['failure'] = chat_result['failure']
+        envelope['calls'].append(call)
+
     try:
+        if type(workers) is not int or not 1 <= workers <= 4:
+            raise ChatError('INVALID_WORKERS:EXPECTED_INTEGER_1_TO_4')
         validate_mode(command, live)
         if ledger is not None and Path(ledger).resolve() == source:
             raise ChatError('LEDGER_IS_SOURCE')
@@ -445,63 +564,54 @@ def run_zip(source, output, timeout=120, command=None, live=True, model='gpt-6.1
         for entry in chats:
             entry.update(analysis_status='NOT_CHECKED', analysis_reason='analysis_not_started')
         envelope['counts']['not_checked_chats'] = len(chats)
+        envelope['jobs']['not_started'] = len(chats)
         envelope['counts']['max_calls'] = len(chats) if max_calls is None else max_calls
         envelope['ledger_path'] = str(Path(ledger or output / 'MODEL_CALLS.jsonl').resolve())
-        positives = []
-        for entry in chats:
-            chat_output = output / 'chats' / f'{entry["entry"]:06d}-{entry["chat_id"]}'
-            chat_result = run_chat(entry['input_path'], chat_output, timeout=timeout,
-                                   command=command, live=live, model=model, reasoning=reasoning,
-                                   ledger=envelope['ledger_path'], max_calls=envelope['counts']['max_calls'])
-            run = json.loads((chat_output / 'RUN.json').read_text(encoding='utf-8'))
-            entry['analysis_status'] = chat_result['status']
-            entry.pop('analysis_reason')
-            entry['analysis_path'] = str(chat_output)
-            envelope['counts']['not_checked_chats'] -= 1
-            envelope['counts']['subprocess_calls'] += run['subprocess_calls']
-            for name in ['parse_load_seconds', 'subprocess_ai_seconds', 'local_validation_seconds']:
-                timing[name] += run['timing'][name]
-            timing['summed_chat_seconds'] += run['timing']['end_to_end_seconds']
-            envelope['calls'].append({'chat_id': entry['chat_id'], 'run_path': str(chat_output),
-                                      'status': chat_result['status'], 'timing': run['timing'],
-                                      'usage': run['usage'], 'requested_model': model,
-                                      'requested_reasoning': reasoning, 'observed_model': run['observed_model'],
-                                      'observed_reasoning': run['observed_reasoning'],
-                                      'observed_snapshot': run['observed_snapshot']})
-            if chat_result['status'] != 'PASS':
-                envelope['counts']['failed_chats'] += 1
-            else:
-                envelope['counts']['successful_chats'] += 1
-                if chat_result['violation']:
-                    positives.append(chat_result['chat_id'])
-            try:
-                if run['usage_status'] == 'HOLD':
-                    raise ChatError(run['usage_error'])
-                add_usage(envelope['usage'], run['usage'])
-            except ChatError as error:
-                envelope.update(usage_status='HOLD', usage_error=str(error),
-                                stopped_early=True, stop_reason=str(error))
-                for pending in chats:
-                    if pending['analysis_status'] == 'NOT_CHECKED':
-                        pending['analysis_reason'] = 'stopped_after_usage_failure:' + str(error)
-                raise
-            if run['usage_status'] == 'OBSERVED':
-                envelope['usage_status'] = 'OBSERVED'
-            if chat_result['status'] != 'PASS':
-                failure = chat_result['failure']
-                # Source-semantic failures can be addressed independently.
-                # Runtime/log/transport faults stop before spending more calls.
-                semantic_failures = ('SEMANTIC_UNCERTAINTY', 'INVALID_SCHEMA:', 'INVALID_POSITION',
-                                     'ROLE_MISMATCH', 'MISSING_OR_AMBIGUOUS_QUOTE', 'DUPLICATE_EVENT',
-                                     'ABSENCE_EVENT_CONTRADICTION', 'OVERLAPPING_DECISION_QUOTES')
-                if not failure.startswith(semantic_failures):
-                    envelope.update(stopped_early=True, stop_reason=failure)
-                    for pending in chats:
-                        if pending['analysis_status'] == 'NOT_CHECKED':
-                            pending['analysis_reason'] = 'stopped_after_runtime_failure:' + failure
+        next_chat = 0
+        pending = {}
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            while pending or (next_chat < len(chats) and not envelope['stopped_early']):
+                while (not envelope['stopped_early'] and next_chat < len(chats)
+                       and len(pending) < workers):
+                    entry = chats[next_chat]
+                    chat_output = output / 'chats' / f'{entry["entry"]:06d}-{entry["chat_id"]}'
+                    try:
+                        future = executor.submit(
+                            run_chat, entry['input_path'], chat_output, timeout=timeout,
+                            command=command, live=live, model=model, reasoning=reasoning,
+                            ledger=envelope['ledger_path'], max_calls=envelope['counts']['max_calls'])
+                    except Exception as error:
+                        stop('JOB_SUBMISSION_ERROR:' + type(error).__name__)
+                        break
+                    entry.update(analysis_status='RUNNING', analysis_path=str(chat_output))
+                    pending[future] = entry
+                    next_chat += 1
+                    envelope['jobs']['submitted'] += 1
+                    envelope['jobs']['not_started'] -= 1
+                    envelope['workers']['observed_max_inflight'] = max(
+                        envelope['workers']['observed_max_inflight'], len(pending))
+                if not pending:
                     break
-        if envelope['counts']['failed_chats']:
-            raise ChatError('CHAT_ANALYSIS_HOLD')
+                try:
+                    done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                except Exception as error:
+                    # A coordinator fault is fatal even if every worker passed.
+                    # future.result below drains independently of this wait API.
+                    stop('COORDINATOR_ERROR:' + type(error).__name__, 'coordinator')
+                    done = set(pending)
+                # Inspect the whole ready set, and any completions during its
+                # reconciliation, before considering another submission.
+                while done:
+                    for future in sorted(done, key=lambda item: pending[item]['entry']):
+                        reconcile(future, pending.pop(future))
+                    done = {future for future in pending if future.done()}
+        envelope['calls'].sort(key=lambda call: call['entry'])
+        if envelope['stopped_early']:
+            for entry in chats[next_chat:]:
+                entry['analysis_reason'] = ('stopped_after_' + envelope['stop_kind']
+                                            + '_failure:' + envelope['stop_reason'])
+        if envelope['counts']['failed_chats'] or envelope['stopped_early']:
+            raise ChatError(envelope.get('usage_error', 'CHAT_ANALYSIS_HOLD'))
         result.update(status='PASS', q4_chats_meeting_before_price=sorted(positives),
                       coverage=registry['coverage'])
     except (OSError, ValueError, zipfile.BadZipFile, RuntimeError, NotImplementedError) as error:
@@ -529,10 +639,13 @@ def main(argv=None):
     parser.add_argument('--reasoning', default='high')
     parser.add_argument('--ledger', type=Path, help='optional shared per-goal call journal')
     parser.add_argument('--max-calls', type=int, help='total ledger cap; default: ZIP chat count')
+    parser.add_argument('--workers', type=int, choices=range(1, 5), default=1,
+                        help='bounded chat workers (default: 1)')
     args = parser.parse_args(argv)
     try:
         result = run_zip(args.source, args.evidence, timeout=args.timeout, model=args.model,
-                         reasoning=args.reasoning, ledger=args.ledger, max_calls=args.max_calls)
+                         reasoning=args.reasoning, ledger=args.ledger, max_calls=args.max_calls,
+                         workers=args.workers)
     except OSError as error:
         print(json.dumps({'status': 'HOLD', 'failure': type(error).__name__}), file=sys.stderr)
         return 2

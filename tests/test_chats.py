@@ -1,5 +1,6 @@
 """Invented Q4 examples and real local subprocess faults; no model calls."""
 
+from concurrent.futures import ALL_COMPLETED, wait as futures_wait
 import hashlib
 import json
 import os
@@ -7,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 import warnings
@@ -402,6 +404,283 @@ class ChatsTests(unittest.TestCase):
                          ['HOLD', 'NOT_CHECKED', 'NOT_CHECKED'])
         self.assertIn('runtime', registry['entries'][1]['analysis_reason'])
         self.assertEqual(len((output / 'MODEL_CALLS.jsonl').read_text().splitlines()), 1)
+
+    def test_workers_bound_overlapping_jobs_and_keep_canonical_evidence(self):
+        # A serial/eager scheduler or completion-order aggregation breaks this.
+        ids = ['ZETA', 'ALPHA', 'GAMMA', 'BETA', 'DELTA', 'EPSILON']
+        source = self.archive([(f'{i}.txt', raw_chat('Приезжайте.', name))
+                               for i, name in enumerate(ids)])
+        answer = response([event('manager_invitation', 'Приезжайте.')], invitation='PRESENT')
+        command = self.fake(answer=answer)
+        original = q.run_chat
+        for workers in [1, 2, 4]:
+            with self.subTest(workers=workers):
+                lock = threading.Lock()
+                barrier = threading.Barrier(workers)
+                later_finished = threading.Event()
+                active, peak, completion = 0, 0, []
+
+                def analyze(source, output, **kwargs):
+                    nonlocal active, peak
+                    name = q.parse_chat(Path(source).read_bytes())['chat_id']
+                    with lock:
+                        active += 1
+                        peak = max(peak, active)
+                    try:
+                        if name in ids[:workers]:
+                            barrier.wait(timeout=5)
+                        result = original(source, output, **kwargs)
+                        if workers > 1 and name == 'ZETA':
+                            self.assertTrue(later_finished.wait(timeout=5))
+                        with lock:
+                            completion.append(name)
+                        if name in ids[1:workers]:
+                            later_finished.set()
+                        return result
+                    finally:
+                        with lock:
+                            active -= 1
+
+                output = self.base / f'bounded-{workers}'
+                with patch.object(q, 'run_chat', side_effect=analyze):
+                    result = q.run_zip(source, output, command=command, live=False, workers=workers)
+                self.assertEqual(result['status'], 'PASS')
+                self.assertEqual(result['q4_chats_meeting_before_price'], sorted(ids))
+                self.assertEqual(peak, workers)
+                if workers > 1:
+                    self.assertNotEqual(completion[0], 'ZETA')
+                run = json.loads((output / 'RUN.json').read_text())
+                self.assertEqual([call['chat_id'] for call in run['calls']], ids)
+                self.assertEqual(run['workers'], {'requested': workers, 'observed_max_inflight': workers})
+                self.assertEqual(run['jobs'], {'submitted': 6, 'completed': 6, 'not_started': 0})
+                self.assertEqual(run['counts']['subprocess_calls'], 6)
+                self.assertEqual(run['usage']['input_tokens'], 72)
+                self.assertEqual(len({call['run_path'] for call in run['calls']}), 6)
+                for call, name in zip(run['calls'], ids):
+                    self.assertEqual(call['expected_raw_sha256'], hashlib.sha256(raw_chat('Приезжайте.', name)).hexdigest())
+                    self.assertEqual(call['expected_chat_id'], name)
+                    self.assertTrue((Path(call['run_path']) / 'RESULT.json').is_file())
+                self.assertGreaterEqual(run['timing']['end_to_end_seconds'], 0)
+                self.assertGreaterEqual(run['timing']['summed_chat_seconds'], 0)
+
+    def test_fatal_jobs_drain_other_inflight_jobs_without_refill(self):
+        # All first-wave futures are ready together: a success must not refill
+        # before the fatal outcome in that same done set has been inspected.
+        source = self.archive([(f'{i}.txt', raw_chat(chat_id=name))
+                               for i, name in enumerate(['FIRST', 'BAD', 'DRAIN', 'PENDING'])])
+        for mode in ['exit', 'timeout', 'raised', 'malformed_usage', 'incompatible_usage',
+                     'wrong_run_id', 'wrong_result_id', 'wrong_hash', 'wrong_result_file', 'overflow_usage']:
+            with self.subTest(mode=mode):
+                body = ('data=json.loads(request.split("\\nINPUT_DATA\\n",1)[1])\n'
+                        'name=data["chat"]["chat_id"]\n'
+                        + ('if name=="BAD": sys.exit(8)\n' if mode == 'exit' else '')
+                        + ('if name=="BAD": time.sleep(5)\n' if mode == 'timeout' else '')
+                        + 'p.write_text(' + repr(json.dumps(response())) + ')\n'
+                        'usage={"input_tokens":12}\n'
+                        + ('if name=="BAD": usage={"input_tokens":"unknown"}\n'
+                           if mode == 'malformed_usage' else '')
+                        + ('usage["details"]={"nested":1} if name=="BAD" else 1\n'
+                           if mode == 'incompatible_usage' else '')
+                        + ('usage["input_tokens"]=0.5 if name=="BAD" else (10**400 if name=="FIRST" else 12)\n'
+                           if mode == 'overflow_usage' else '')
+                        + 'print(json.dumps({"type":"turn.completed","usage":usage}))')
+                command = self.fake(body=body, log=[])
+                original = q.run_chat
+                barrier = threading.Barrier(3)
+                bad_finished = threading.Event()
+                completed = []
+                lock = threading.Lock()
+
+                def analyze(source, output, **kwargs):
+                    name = q.parse_chat(Path(source).read_bytes())['chat_id']
+                    barrier.wait(timeout=5)
+                    if name == 'DRAIN':
+                        self.assertTrue(bad_finished.wait(timeout=5))
+                    try:
+                        if name == 'BAD' and mode == 'raised':
+                            raise RuntimeError('invented unobserved worker fault')
+                        result = original(source, output, **kwargs)
+                        if name == 'BAD' and mode.startswith('wrong_'):
+                            run_path = Path(output) / 'RUN.json'
+                            run = json.loads(run_path.read_text())
+                            if mode == 'wrong_run_id':
+                                run['chat_id'] = 'OTHER'
+                            elif mode == 'wrong_result_id':
+                                result['chat_id'] = 'OTHER'
+                                run['result'] = result
+                                q.dump(Path(output) / 'RESULT.json', result)
+                            elif mode == 'wrong_hash':
+                                run['raw_sha256'] = '0' * 64
+                            else:
+                                q.dump(Path(output) / 'RESULT.json', {'status': 'PASS'})
+                            q.dump(run_path, run)
+                        return result
+                    finally:
+                        with lock:
+                            completed.append(name)
+                        if name == 'BAD':
+                            bad_finished.set()
+
+                def collect_wave(futures, **kwargs):
+                    return futures_wait(futures, return_when=ALL_COMPLETED)
+
+                output = self.base / f'drain-{mode}'
+                with patch.object(q, 'run_chat', side_effect=analyze), \
+                        patch.object(q, 'wait', side_effect=collect_wave, create=True):
+                    result = q.run_zip(source, output, timeout=.2 if mode == 'timeout' else 5,
+                                       command=command, live=False, workers=3)
+                self.assertEqual(result['status'], 'HOLD')
+                self.assertNotIn('q4_chats_meeting_before_price', result)
+                self.assertFalse((output / 'Q4_RESULT.json').exists())
+                self.assertCountEqual(completed, ['FIRST', 'BAD', 'DRAIN'])
+                run = json.loads((output / 'RUN.json').read_text())
+                self.assertEqual(run['jobs'], {'submitted': 3, 'completed': 3, 'not_started': 1})
+                self.assertEqual([call['chat_id'] for call in run['calls']], ['FIRST', 'BAD', 'DRAIN'])
+                self.assertTrue(run['stopped_early'])
+                self.assertEqual(run['counts']['successful_chats'], 2)
+                self.assertEqual(run['counts']['failed_chats'], 1)
+                self.assertEqual(run['counts']['not_checked_chats'], 1)
+                self.assertEqual(run['counts']['observed_subprocess_calls'], 2 if mode == 'raised' else 3)
+                if mode == 'raised':
+                    self.assertIsNone(run['counts']['subprocess_calls'])
+                    self.assertEqual(run['counts']['unknown_subprocess_jobs'], 1)
+                else:
+                    self.assertEqual(run['counts']['subprocess_calls'], 3)
+                if 'usage' in mode:
+                    self.assertEqual(run['usage_status'], 'HOLD')
+                    self.assertIn('INVALID_USAGE:', run['usage_error'])
+                    self.assertEqual(run['usage']['input_tokens'],
+                                     10**400 + 12 if mode == 'overflow_usage' else 24)
+                registry = json.loads((output / 'REGISTRY.json').read_text())
+                self.assertEqual([e['analysis_status'] for e in registry['entries']],
+                                 ['PASS', 'HOLD', 'PASS', 'NOT_CHECKED'])
+                self.assertIn('stopped_after_', registry['entries'][-1]['analysis_reason'])
+                self.assertEqual(run['calls'][-1]['status'], 'PASS')
+                self.assertEqual(len((output / 'MODEL_CALLS.jsonl').read_text().splitlines()),
+                                 2 if mode == 'raised' else 3)
+
+    def test_semantic_hold_drains_and_continues_with_remaining_chats(self):
+        source = self.archive([(f'{i}.txt', raw_chat(chat_id=name))
+                               for i, name in enumerate(['UNCERTAIN', 'GOOD', 'LATER'])])
+        body = ('data=json.loads(request.split("\\nINPUT_DATA\\n",1)[1])\n'
+                'answer=' + repr(response()) + '\n'
+                'if data["chat"]["chat_id"]=="UNCERTAIN": answer["semantic_status"]="UNCERTAIN"\n'
+                'p.write_text(json.dumps(answer))')
+        output = self.base / 'semantic-continue'
+        result = q.run_zip(source, output, command=self.fake(body=body), live=False, workers=2)
+        self.assertEqual(result['status'], 'HOLD')
+        run = json.loads((output / 'RUN.json').read_text())
+        self.assertEqual(run['jobs'], {'submitted': 3, 'completed': 3, 'not_started': 0})
+        self.assertEqual(run['counts']['failed_chats'], 1)
+        self.assertEqual(run['counts']['successful_chats'], 2)
+        self.assertFalse(run['stopped_early'])
+        self.assertFalse((output / 'Q4_RESULT.json').exists())
+
+    def test_invalid_workers_never_submit_and_cli_rejects_out_of_range(self):
+        source = self.archive([('one.txt', raw_chat())])
+        command = self.fake()
+        for index, workers in enumerate([True, False, 0, -1, 5, 1.0, '2', None]):
+            with self.subTest(workers=workers):
+                output = self.base / f'invalid-workers-{index}'
+                result = q.run_zip(source, output, command=command, live=False, workers=workers)
+                self.assertEqual(result['status'], 'HOLD')
+                self.assertIn('INVALID_WORKERS', result['failure'])
+                run = json.loads((output / 'RUN.json').read_text())
+                self.assertEqual(run['jobs']['submitted'], 0)
+                self.assertFalse((output / 'MODEL_CALLS.jsonl').exists())
+        for workers in ['0', '5', 'true', '1.5']:
+            done = subprocess.run([sys.executable, '-B', '-m', 'akfurs.chats', str(source),
+                                   '--evidence', str(self.base / 'invalid-cli'), '--workers', workers],
+                                  text=True, capture_output=True,
+                                  env=dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / 'src')))
+            self.assertNotEqual(done.returncode, 0)
+            self.assertFalse((self.base / 'invalid-cli').exists())
+
+    def test_coordinator_faults_drain_every_submitted_job(self):
+        # G05-PERF-IR-CODE-01: coordinator faults must not strand RUNNING
+        # entries or report known-zero calls despite completed child jobs.
+        source = self.archive([(name + '.txt', raw_chat(chat_id=name))
+                               for name in ['BAD', 'DRAIN', 'PENDING']])
+        command = self.fake()
+        original = q.run_chat
+        original_read = Path.read_text
+        original_add_usage = q.add_usage
+        for mode in ['deep_run', 'deep_result', 'metadata_runtime', 'usage_runtime',
+                     'wait_runtime', 'wait_recursion']:
+            with self.subTest(mode=mode):
+                barrier = threading.Barrier(2)
+                completed = []
+                lock = threading.Lock()
+                usage_failed = False
+
+                def analyze(source, output, **kwargs):
+                    name = q.parse_chat(Path(source).read_bytes())['chat_id']
+                    barrier.wait(timeout=5)
+                    result = original(source, output, **kwargs)
+                    if name == 'BAD' and mode in ['deep_run', 'deep_result']:
+                        target = Path(output) / ('RUN.json' if mode == 'deep_run' else 'RESULT.json')
+                        data = original_read(target).rstrip()
+                        target.write_text(data[:-1] + ',"invented_extension":'
+                                          + '{"x":' * 12000 + '0' + '}' * 12000 + '}')
+                    with lock:
+                        completed.append(name)
+                    return result
+
+                def wait_wave(futures, **kwargs):
+                    ready = futures_wait(futures, return_when=ALL_COMPLETED)
+                    if mode == 'wait_runtime':
+                        raise RuntimeError('invented wait fault after both jobs finish')
+                    if mode == 'wait_recursion':
+                        raise RecursionError('invented coordinator recursion fault')
+                    return ready
+
+                def read_metadata(path, *args, **kwargs):
+                    if mode == 'metadata_runtime' and path.name == 'RUN.json' and path.parent.name.endswith('-BAD'):
+                        raise RuntimeError('invented RUN metadata read fault')
+                    return original_read(path, *args, **kwargs)
+
+                def aggregate_usage(total, usage, location='usage'):
+                    nonlocal usage_failed
+                    if (mode == 'usage_runtime' and threading.current_thread() is threading.main_thread()
+                            and not usage_failed):
+                        usage_failed = True
+                        raise RuntimeError('invented coordinator usage fault')
+                    return original_add_usage(total, usage, location)
+
+                output = self.base / ('coordinator-' + mode)
+                with patch.object(q, 'run_chat', side_effect=analyze), \
+                        patch.object(q, 'wait', side_effect=wait_wave), \
+                        patch.object(Path, 'read_text', new=read_metadata), \
+                        patch.object(q, 'add_usage', side_effect=aggregate_usage):
+                    result = q.run_zip(source, output, command=command, live=False, workers=2)
+                self.assertEqual(result['status'], 'HOLD')
+                self.assertNotIn('q4_chats_meeting_before_price', result)
+                self.assertFalse((output / 'Q4_RESULT.json').exists())
+                self.assertCountEqual(completed, ['BAD', 'DRAIN'])
+                self.assertEqual(len(list((output / 'chats').glob('*/RESULT.json'))), 2)
+                self.assertEqual(len((output / 'MODEL_CALLS.jsonl').read_text().splitlines()), 2)
+                run = json.loads((output / 'RUN.json').read_text())
+                registry = json.loads((output / 'REGISTRY.json').read_text())
+                self.assertEqual(run['jobs'], {'submitted': 2, 'completed': 2, 'not_started': 1})
+                self.assertTrue(run['stopped_early'])
+                self.assertEqual([call['chat_id'] for call in run['calls']], ['BAD', 'DRAIN'])
+                self.assertEqual(run['counts']['not_checked_chats'], 1)
+                if mode.startswith('wait_'):
+                    self.assertIn('COORDINATOR_ERROR:', run['stop_reason'])
+                    self.assertEqual(run['counts']['failed_chats'], 0)
+                    self.assertEqual(run['counts']['successful_chats'], 2)
+                    self.assertEqual([e['analysis_status'] for e in registry['entries']],
+                                     ['PASS', 'PASS', 'NOT_CHECKED'])
+                else:
+                    self.assertEqual(run['counts']['failed_chats'], 1)
+                    self.assertEqual(run['counts']['successful_chats'], 1)
+                    self.assertEqual([e['analysis_status'] for e in registry['entries']],
+                                     ['HOLD', 'PASS', 'NOT_CHECKED'])
+                unknown = mode in ['deep_run', 'metadata_runtime']
+                self.assertEqual(run['counts']['unknown_subprocess_jobs'], 1 if unknown else 0)
+                self.assertEqual(run['counts']['observed_subprocess_calls'], 1 if unknown else 2)
+                self.assertEqual(run['counts']['subprocess_calls'], None if unknown else 2)
+                self.assertIn('stopped_after_', registry['entries'][2]['analysis_reason'])
 
     def test_cli_missing_source_is_nonzero_json_and_retains_diagnostic(self):
         output = self.base / 'missing'
