@@ -1,6 +1,6 @@
 # Проверки
 
-Область: будущие предметные тесты CLI Q1–Q4. Таких расчётных проверок сейчас нет. Отдельные синтетические проверки инфраструктуры находятся в `data_skills/` и запускаются `.venv/bin/python -m unittest discover -s tests/data_skills -v`; они не подтверждают решение задания. Правила предметных примеров — в [fixtures/synthetic/AGENTS.md](fixtures/synthetic/AGENTS.md).
+Область: предметные тесты CLI Q1–Q4. `test_crm.py` проверяет частный Q1 через CLI на придуманных CSV; запуск — `.venv/bin/python -m unittest discover -s tests -p test_crm.py -v`. Отдельные синтетические проверки инфраструктуры находятся в `data_skills/` и запускаются `.venv/bin/python -m unittest discover -s tests/data_skills -v`; они не подтверждают решение задания. Правила предметных примеров — в [fixtures/synthetic/AGENTS.md](fixtures/synthetic/AGENTS.md).
 
 ## Обязательные случаи
 
